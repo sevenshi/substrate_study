@@ -1,3 +1,4 @@
 测速结果
 
-![[Pasted image 20220828150748.png]]
+![image](https://github.com/sevenshi/substrate_study/blob/main/poe/Pasted%20image%2020220828150748.png)
+
