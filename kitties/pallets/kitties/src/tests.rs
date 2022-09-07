@@ -28,9 +28,7 @@ fn create_error_when_max_kitty_owned() {
 		assert_ok!(KittiesModule::create(Origin::signed(1)));
 		assert_ok!(KittiesModule::create(Origin::signed(1)));
 		assert_ok!(KittiesModule::create(Origin::signed(1)));
-		//assert_noop!(KittiesModule::create(Origin::signed(1)),
-		// Error::<Test>::ExceedMaxKittyOwned);
-		assert_noop!(KittiesModule::create(Origin::signed(1)), Error::<Test>::ExceedMaxKittyOwned);
+		assert_noop!(KittiesModule::create(Origin::signed(1)), Error::<Test>::ExceedKittyOwned);
 	});
 }
 
@@ -79,12 +77,39 @@ fn breed_error_when_not_enough_balance_for_staking() {
 }
 
 #[test]
+fn breed_error_when_exceed_max_kitty_owned() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(KittiesModule::create(Origin::signed(1)));
+		assert_ok!(KittiesModule::create(Origin::signed(1)));
+		assert_ok!(KittiesModule::create(Origin::signed(2)));
+		assert_ok!(KittiesModule::create(Origin::signed(2)));
+		assert_ok!(KittiesModule::create(Origin::signed(2)));
+		assert_noop!(
+			KittiesModule::breed(Origin::signed(2), 0, 1),
+			Error::<Test>::ExceedKittyOwned
+		);
+	});
+}
+
+#[test]
 fn transfer_works() {
 	new_test_ext().execute_with(|| {
 		assert_ok!(KittiesModule::create(Origin::signed(1)));
 		// Transfer AccountID 1 to AccountID 2, KittyIndex = 0
 		assert_ok!(KittiesModule::transfer(Origin::signed(1), 0, 2));
 		assert_eq!(KittiesOwner::<Test>::get(2).contains(&0u32), true);
+	});
+}
+
+#[test]
+fn transfer_error_when_exceed_max_kitty_owned() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(KittiesModule::create(Origin::signed(1)));
+		assert_ok!(KittiesModule::create(Origin::signed(2)));
+		assert_ok!(KittiesModule::create(Origin::signed(2)));
+		assert_ok!(KittiesModule::create(Origin::signed(2)));
+		// Transfer AccountID 1 to AccountID 2, KittyIndex = 0
+		assert_noop!(KittiesModule::transfer(Origin::signed(1), 0, 2),Error::<Test>::ExceedKittyOwned);
 	});
 }
 

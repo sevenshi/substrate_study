@@ -21,7 +21,7 @@ pub mod pallet {
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{Currency, Randomness, ReservableCurrency},
-		transactional,
+		transactional, ensure,
 	};
 	use frame_system::pallet_prelude::*;
 	use sp_io::hashing::blake2_128;
@@ -92,6 +92,7 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
+		ExceedKittyOwned,
 		KittiesCountOverflow,
 		NotOwner,
 		SameParentIndex,
@@ -100,9 +101,7 @@ pub mod pallet {
 		KittyNotForSale,
 		NotEnoughBalanceForStaking,
 		NotEnoughBalanceForBuying,
-
 		TransferToSelf,
-		ExceedMaxKittyOwned,
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -113,17 +112,18 @@ pub mod pallet {
 		/// An example dispatchable that takes a singles value as a parameter, writes the value to
 		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
 		#[pallet::weight(1_000)]
+		#[transactional]
 		pub fn create(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			//get kitty dna
 			let dna = Self::random_value(&who);
 			//new kitty with stake
-			Self::new_kitty_with_stake(&who, dna)?;
-
+			Self::new_kitty_with_stake(who, dna)?;
 			Ok(())
 		}
 
 		#[pallet::weight(1_000)]
+		#[transactional]
 		pub fn breed(
 			origin: OriginFor<T>,
 			kitty_id_1: T::KittyIndex,
@@ -145,7 +145,7 @@ pub mod pallet {
 				new_dna[i] = (selector[i] & dna_1[i]) | (!selector[i] & dna_2[i]);
 			}
 			//new kitty with stake
-			Self::new_kitty_with_stake(&who, new_dna)?;
+			Self::new_kitty_with_stake(who, new_dna)?;
 
 			Ok(())
 		}
@@ -227,7 +227,7 @@ pub mod pallet {
 			payload.using_encoded(blake2_128)
 		}
 		// Helper function for optimizing the codes from create() and transfer().
-		fn new_kitty_with_stake(owner: &T::AccountId, dna: [u8; 16]) -> Result<(), Error<T>> {
+		fn new_kitty_with_stake(owner: T::AccountId, dna: [u8; 16]) -> Result<(), Error<T>> {
 			let kitty_id = match Self::kitties_count() {
 				Some(id) => {
 					ensure!(id != T::KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
@@ -235,6 +235,8 @@ pub mod pallet {
 				},
 				None => 0u32.into(),
 			};
+			KittiesOwner::<T>::try_mutate(&owner, |vec| vec.try_push(kitty_id))
+				.map_err(|_| <Error<T>>::ExceedKittyOwned)?;
 
 			let stake = T::StakeForEachKitty::get();
 
@@ -243,8 +245,7 @@ pub mod pallet {
 
 			Kitties::<T>::insert(kitty_id, Some(Kitty { dna, price: None, owner: owner.clone() }));
 
-			KittiesOwner::<T>::try_mutate(&owner, |vec| vec.try_push(kitty_id))
-				.map_err(|_| Error::<T>::ExceedMaxKittyOwned)?;
+
 
 			KittiesCount::<T>::put(kitty_id + 1u32.into());
 			Self::deposit_event(Event::KittyCreated(owner.clone(), kitty_id));
@@ -283,7 +284,7 @@ pub mod pallet {
 			<Kitties<T>>::insert(kitty_id, Some(kitty));
 
 			KittiesOwner::<T>::try_mutate(&to, |vec| vec.try_push(kitty_id))
-				.map_err(|_| <Error<T>>::ExceedMaxKittyOwned)?;
+				.map_err(|_| <Error<T>>::ExceedKittyOwned)?;
 
 			Self::deposit_event(Event::KittyTransferred(prev_owner, to, kitty_id));
 
