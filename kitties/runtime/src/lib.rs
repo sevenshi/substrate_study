@@ -262,17 +262,15 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
-
 parameter_types! {
-    pub const StakeForEachKitty: u128 = 1_000;
+	pub const StakeForEachKitty: u128 = 1_000;
 	pub const MaxKittyOwned: u32 = 5;
 }
-
 
 /// Configure the pallet-kitties in pallets/kitties.
 impl pallet_kitties::Config for Runtime {
 	type Event = Event;
-    type Randomness = RandomnessCollectiveFlip;
+	type Randomness = RandomnessCollectiveFlip;
 	type KittyIndex = u32;
 	type StakeForEachKitty = StakeForEachKitty;
 	type Currency = Balances;
