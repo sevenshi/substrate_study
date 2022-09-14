@@ -63,7 +63,7 @@ pub mod pallet {
 	/// Storage for tracking all the kitties
 	#[pallet::storage]
 	#[pallet::getter(fn kitties_count)]
-	pub type KittiesCount<T: Config> = StorageValue<_, T::KittyIndex>;
+	pub type KittiesCount<T: Config> = StorageValue<_, T::KittyIndex,ValueQuery>;
 
 	/// Storage for every kitty.
 	#[pallet::storage]
@@ -228,13 +228,8 @@ pub mod pallet {
 		}
 		// Helper function for optimizing the codes from create() and transfer().
 		fn new_kitty_with_stake(owner: T::AccountId, dna: [u8; 16]) -> Result<(), Error<T>> {
-			let kitty_id = match Self::kitties_count() {
-				Some(id) => {
-					ensure!(id != T::KittyIndex::max_value(), Error::<T>::KittiesCountOverflow);
-					id
-				},
-				None => 0u32.into(),
-			};
+			let kitty_id =  Self::kitties_count();
+
 			KittiesOwner::<T>::try_mutate(&owner, |vec| vec.try_push(kitty_id))
 				.map_err(|_| <Error<T>>::ExceedKittyOwned)?;
 
