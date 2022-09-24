@@ -16,7 +16,7 @@ mod benchmarking;
 
 use sp_runtime::{
     offchain::{
-        storage::{MutateStorageError, StorageRetrievalError, StorageValueRef},
+        storage::{ StorageRetrievalError, StorageValueRef},
         http, Duration,
     },
 };
@@ -66,7 +66,8 @@ pub mod pallet {
     use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
+    use sp_std::vec::Vec;	
+    use sp_std::{str};
     use sp_std::collections::vec_deque::VecDeque;
 
     // {"data":{"id":"polkadot","rank":"12","symbol":"DOT","name":"Polkadot","supply":"1153614196.4216700000000000",
@@ -120,6 +121,7 @@ pub mod pallet {
     }
 
 
+
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
@@ -131,6 +133,16 @@ pub mod pallet {
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
 	}
+
+
+    #[pallet::storage]
+	#[pallet::getter(fn index_value) ]
+	pub type IndexValue<T> = StorageValue<_, Option<u64>>;
+
+    #[pallet::storage]
+	#[pallet::getter(fn polkadot_price) ]
+	pub type PolkadotPrice<T> = StorageValue<_, Option<u64>>;
+
 
 	// The pallet's runtime storage items.
 	// https://docs.substrate.io/main-docs/build/runtime-storage/
@@ -158,6 +170,13 @@ pub mod pallet {
 		/// Errors should have helpful documentation associated with them.
 		StorageOverflow,
 	}
+
+	const ONCHAIN_INDEX_TX_KEY: &[u8] = b"my_pallet::indexing";
+	const ONCHAIN_PRICE_TX_KEY: &[u8] = b"my_pallet::price";
+
+	#[derive(Debug, Deserialize, Encode, Decode, Default)]
+    struct IndexingData(Vec<u8>, u64);
+
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
 	// These functions materialize as "extrinsics", which are often compared to transactions.
@@ -201,30 +220,49 @@ pub mod pallet {
 			}
 		}
 
-        #[pallet::weight(0)]
-        pub fn submit_data(origin: OriginFor<T>, payload: Vec<u8>) -> DispatchResultWithPostInfo {
-
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+        pub fn set_index(origin: OriginFor<T>, index: u64) -> DispatchResultWithPostInfo {
             let _who = ensure_signed(origin)?;
-
-            log::info!("in submit_data call: {:?}", payload);
-
+            <IndexValue<T>>::put(Some(index));
             Ok(().into())
         }
+
+        #[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+        pub fn set_price(origin: OriginFor<T>, price: u64) -> DispatchResultWithPostInfo {
+            let _who = ensure_signed(origin)?;
+            <PolkadotPrice<T>>::put(Some(price));
+            Ok(().into())
+        }
+
+        #[pallet::weight(0)]
+		pub fn set_local_storage(
+			origin: OriginFor<T>,
+			some_number: u64,
+		) -> DispatchResultWithPostInfo {
+			ensure_signed(origin)?;
+
+			Self::set_local_storage_with_offchain_index(some_number);
+			Ok(().into())
+		}
+
 	}
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 
-        fn offchain_worker(_: T::BlockNumber) {
-            let key = b"node-template::storage::polkadot::price".to_vec();
-            let val_ref = StorageValueRef::persistent(&key);
+        fn offchain_worker(block_number: T::BlockNumber) {
+
+            log::info!("Hello World from offchain workers!: {:?}", block_number);
+
+            let price_key = ONCHAIN_PRICE_TX_KEY.encode();
+            log::info!("Price key is: {:?}", price_key);
+            let val_ref = StorageValueRef::persistent(&price_key);
             let mut vec = VecDeque::with_capacity(10);
 
             if let Ok(Some(value)) = val_ref.get::<VecDeque<PolkadotVo>>() {
                 // print values
                 vec = value;
             }
-
 
             if let Ok(info) = Self::fetch_polkadot_price() {
 
@@ -251,6 +289,26 @@ pub mod pallet {
 
             log::info!("Price VecDeque: {:?}", res.as_ref().unwrap());
 
+            if let Ok(offchain_data)  = Self::get_local_storage_with_offchain_index() {
+
+                if let Some(onchain_data)  = IndexValue::<T>::get(){
+                    if(Some(offchain_data.1) != onchain_data){
+                        Self::set_index_signed_tx();
+                    }
+                } else {
+                    Self::set_index_signed_tx();
+                }
+            } else {
+
+            }
+
+          
+            Self::set_price_signed_tx();
+
+
+		
+            log::info!("Leave from offchain workers!: {:?}", block_number);
+
 
         }
 
@@ -272,28 +330,40 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
 
-        fn send_signed_tx(payload: Vec<u8>) -> Result<(), &'static str> {
+        fn set_index_signed_tx() -> Result<(), &'static str> {
             let signer = Signer::<T, T::AuthorityId>::all_accounts();
             if !signer.can_sign() {
                 return Err(
                     "No local accounts available. Consider adding one via `author_insertKey` RPC.",
                     )
             }
+            let data =   Self::get_local_storage_with_offchain_index().unwrap();
+
 
             let results = signer.send_signed_transaction(|_account| {
-
-                Call::submit_data { payload: payload.clone() }
+                Call::set_index { index: data.1 }
             });
 
-            for (acc, res) in &results {
-                match res {
-                    Ok(()) => log::info!("[{:?}] Submitted data:{:?}", acc.id, payload),
-                    Err(e) => log::error!("[{:?}] Failed to submit transaction: {:?}", acc.id, e),
-                }
-            }
 
             Ok(())
         }
+
+        fn set_price_signed_tx() -> Result<(), &'static str> {
+            let signer = Signer::<T, T::AuthorityId>::all_accounts();
+            if !signer.can_sign() {
+                return Err(
+                    "No local accounts available. Consider adding one via `author_insertKey` RPC.",
+                    )
+            }
+            if let Ok(offchain_price)  = Self::get_average_polkadot_price() {
+                let results = signer.send_signed_transaction(|_account| {
+                    log::info!("polkadot price is {:?} reading from local storage.",offchain_price);
+                    Call::set_price { price: offchain_price }
+                });
+            }
+            Ok(())
+        }
+
 
         fn fetch_polkadot_price() -> Result<PolkadotVo, http::Error> {
             // prepare for send request
@@ -323,6 +393,57 @@ pub mod pallet {
             Ok(gh_info)
         }
 
+
+		fn set_local_storage_with_offchain_index(some_number: u64) {
+			let key = ONCHAIN_INDEX_TX_KEY.encode();
+			let data = IndexingData(b"submit_number_unsigned".to_vec(), some_number);
+
+			sp_io::offchain_index::set(&key, &data.encode());
+			log::info!(target:"offchain-index-demo", "set some_number ======================== {:?}", some_number);
+		}
+
+        fn get_local_storage_with_offchain_index() -> Result<IndexingData, &'static str>   {
+            let index_key = ONCHAIN_INDEX_TX_KEY.encode();
+			log::info!("Index key is: {:?}", index_key);
+			let storage_ref = StorageValueRef::persistent(&index_key);
+            if let Ok(Some(data)) = storage_ref.get::<IndexingData>() {
+				log::info!("local storage data: {:?}, {:?}",
+					str::from_utf8(&data.0).unwrap_or("error"), data.1);
+                    Ok(data)
+			} else {
+				log::info!("Error reading from local storage.");
+                Err("Error reading from local storage.")
+			}
+		}
+
+        //precision 10**18
+        fn get_average_polkadot_price() -> Result<u64, &'static str> {
+
+            let price_key = ONCHAIN_PRICE_TX_KEY.encode();
+			let storage_ref = StorageValueRef::persistent(&price_key);
+            if let  Ok(Some( data)) = storage_ref.get::<VecDeque<PolkadotVo>>() {
+                let mut count = 0.0f64;
+                let mut amount = 0.0f64;
+
+                for v in data.iter() {
+                    if let Ok(str) =  sp_std::str::from_utf8( &v.data.priceUsd){
+                        let price = str.parse::<f64>().unwrap();
+                       
+                        amount = amount + price;
+                        count = count + 1.0;
+                    }
+                }
+                let x :u64= 10;
+                let precision:u64 = x.pow(18_u32);
+                log::info!(" reading price from local storage amount {:?}  count {:?}  precision {:?}.",amount, count ,precision );
+
+                Ok((amount / count * (precision  as f64)) as u64)
+
+			} else {
+				log::info!("Error reading from local storage.");
+                Err("Error reading price from local storage.")
+			}
+        }
     }
 
 }
